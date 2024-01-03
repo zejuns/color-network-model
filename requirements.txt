@@ -1,0 +1,8 @@
+numpy
+pandas
+matplotlib
+streamlit
+scikit-learn
+networkx
+streamlit-option-menu
+opencv-python
