@@ -5,4 +5,4 @@ streamlit
 scikit-learn
 networkx
 streamlit-option-menu
-opencv-python
+opencv-python-headless
