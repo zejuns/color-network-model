@@ -60,9 +60,12 @@ def extract_colors(imgs, max_k):
             ratios = counts / len(data)
 
             colors = center.astype(int)
-            labels = np.arange(k)
+            labels = np.arange(1, k+1)
 
             fig, ax = plt.subplots()  # 创建新的图形对象
+            sorted_indices = np.argsort(ratios)[::-1]  # 按比例从大到小排序的索引
+            ratios = ratios[sorted_indices]
+            colors = colors[sorted_indices]
             ax.pie(ratios, labels=labels, colors=colors / 255, autopct='%1.1f%%', startangle=90)
             ax.axis('equal')
             ax.set_title('Extracted Colors')
@@ -108,10 +111,11 @@ def download_images(color_data_list):
             )
 
 
-def total_pie_chart(color_data_list):
+def total_pie_chart(color_data_list, k_total):
+    col1, col2 = st.columns(2)           
     total_img = []
     total_colors = []
-    k_total = st.number_input('Enter the no. of colors to be extracted in the Total Pie Chart', min_value=1)
+    
     if len(color_data_list) > 0:       
         for color_data in color_data_list:
             colors = color_data["Colors"]
@@ -133,20 +137,26 @@ def total_pie_chart(color_data_list):
         ratios = counts / len(total_data)
 
         colors = centers.astype(int)
-        labels = np.arange(k_total)
+        labels = np.arange(1, k_total+1)
 
         fig_total, ax_total = plt.subplots()
-        ax_total.pie(ratios, labels=labels, colors=colors / 255, autopct='%1.1f%%', startangle=90)
+        sorted_indices = np.argsort(ratios)[::-1]  # 按比例从大到小排序的索引
+        ratios = ratios[sorted_indices]
+        colors = colors[sorted_indices]
+        ax_total.pie(ratios, labels=labels, colors=colors / 255, autopct='', startangle=90)
         ax_total.axis('equal')
-        ax_total.set_title('Total Extracted Colors')
+        ax_total.set_title('Total Pie Chart')
+        # 调整标题和饼图之间的距离
+        plt.subplots_adjust(top=1.2)
 
         total_colors.append({"Colors": colors, "Ratios": ratios})
         colors_ratios = np.concatenate((colors, np.expand_dims(ratios, axis=1)), axis=1)
-        df = pd.DataFrame(colors_ratios)
-
-        st.write("Colors and Ratios for Total Pie Chart")
-        st.write(df)  
-        st.pyplot(fig_total)
+        df = pd.DataFrame(colors_ratios, columns=["R", "G", "B", "Ratio"])
+        df.index = df.index + 1
+        with col1:
+            st.pyplot(fig_total)
+        with col2:
+            st.write(df)  
     return total_colors
 
 def color_network_model(color_data_list, total_colors):
@@ -176,7 +186,7 @@ def color_network_model(color_data_list, total_colors):
                             marked_colors.append(tuple(color.tolist()))
             total_marked_colors.append(marked_colors)
             marked_colors = []  
-
+        
         plt.figure(figsize=(10, 10))
         pos = nx.circular_layout(G)
 
@@ -191,11 +201,16 @@ def color_network_model(color_data_list, total_colors):
                         G.add_edge(color_array[i], color_array[j], width=0.5)
 
         # 绘制图形
-        node_sizes = [G.nodes[n]["size"] * 10000 for n in G.nodes()]
+        node_sizes = [G.nodes[n]["size"] * 6000 for n in G.nodes()]
         node_color = [tuple(c / 255 for c in color) for color in list(G.nodes())]
         edge_widths = [G[u][v]["width"] for u, v in G.edges()]
+
+        # 调整节点坐标，将节点以中心点为中心放大一圈
+        scaled_pos = {k: (v[0]*1.1, v[1]*1.1) for k, v in pos.items()}
+        
         nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color=node_color)
         nx.draw_networkx_edges(G, pos, width=edge_widths)
+        nx.draw_networkx_labels(G, scaled_pos, font_size=8, font_color='black', labels={n: str(i+1) for i, n in enumerate(G.nodes())})
         plt.axis("off")
         plt.title('Color Network Model')
         st.pyplot(plt.gcf())
@@ -205,9 +220,19 @@ def color_network_model(color_data_list, total_colors):
 
 def color_application(total_marked_colors, G):
     st.subheader("Select Colors And Apply Them")
-    input_value = st.text_input("Enter the rgb value of the main color and separate it with a space.")
-    values = tuple(int(x) for x in input_value.split(" ") if x.strip())
-    st.write("Entered value:", values)
+    input_value = st.text_input("Enter the No. of the Main Color in the Total Pie Chart", value=1)
+    values = ()
+    counter = 0
+
+    for node in G.nodes:
+        if counter == int(input_value) - 1:
+            rgb_value = node
+            values = rgb_value
+            break       
+        counter += 1
+    else:
+        values = []  # 如果输入值为空或超出节点范围，则将 values 设置为空列表
+    st.write("RGB value:", values)
     k = st.number_input('Enter the number of auxiliary colors:', min_value=1)       
     
     if len(total_marked_colors) > 0:     
@@ -249,7 +274,8 @@ def color_application(total_marked_colors, G):
             # 读取原始图像
             img = Image.open(original_img)
             img_array = np.array(img)
-
+            if img_array.shape[2] == 4:  # Check if image has 4 channels (alpha channel)
+                img_array = img_array[:, :, :3]
             # 创建新图像数组
             new_img_array = np.zeros_like(img_array)
             if new_img_array.shape[2] == 4:  # Check if image has 4 channels
@@ -284,15 +310,15 @@ def main():
     G = st.session_state.get("G")
     if selected4 == "Extracted Colors":
         st.subheader("Input Images")
-        max_k = st.number_input('Enter the Max K of K-means', value=20)
-
+        max_k = st.number_input('Enter the Max K of K-means', value=20)        
         imgs = st.file_uploader("Choose Images", accept_multiple_files=True)
         color_data_list = extract_colors(imgs, max_k)
         download_images(color_data_list)
         st.session_state["imgs"] = imgs
         st.session_state["color_data_list"] = color_data_list
     if selected4 == "Total Pie Chart":
-        total_colors = total_pie_chart(color_data_list)
+        k_total = st.number_input('Enter the No. of Colors to Be Extracted', min_value=1)
+        total_colors = total_pie_chart(color_data_list, k_total)
         st.session_state["total_colors"] = total_colors
     if selected4 == "Color Network Model":
         total_marked_colors, G = color_network_model(color_data_list, total_colors)
