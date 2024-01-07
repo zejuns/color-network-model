@@ -285,8 +285,8 @@ def main():
     if selected4 == "Extracted Colors":
         st.subheader("Input Images")
         max_k = st.number_input('Enter the Max K of K-means', value=20)
-        if not imgs:
-            imgs = st.file_uploader("Choose Images", accept_multiple_files=True)
+
+        imgs = st.file_uploader("Choose Images", accept_multiple_files=True)
         color_data_list = extract_colors(imgs, max_k)
         download_images(color_data_list)
         st.session_state["imgs"] = imgs
