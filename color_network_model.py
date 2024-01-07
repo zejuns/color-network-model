@@ -7,17 +7,17 @@ import pandas as pd
 import networkx as nx
 from sklearn.cluster import KMeans
 from streamlit_option_menu import option_menu
+import zipfile
 
-def extract_colors():
-    st.subheader("Input Images")
-    imgs = st.file_uploader("Choose Images", accept_multiple_files=True)
-
-    color_data_list = []  # 用于保存每张饼图的数据
-
+@st.cache_data
+def extract_colors(imgs, max_k):
     if imgs is not None:
+        color_data_list = []  # 用于保存每张饼图的数据
         for i, img in enumerate(imgs):
             st.subheader("Image " + str(i + 1))
-            st.image(img)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.image(img)
 
             img_data = np.array(Image.open(img))
 
@@ -32,26 +32,25 @@ def extract_colors():
 
             # 使用肘部法则选择最佳的k值
             sse = []
-            k_values = range(2, 13)  # 尝试的k值范围
-            # 清空SSE列表
-            sse.clear()
+            k_values = range(2, max_k + 1)  # 尝试的k值范围
             for k in k_values:
                 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
                 ret, label, center = cv2.kmeans(data, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
                 sse.append(np.sum((data - center[label.flatten()]) ** 2))
-            
             
             plt.clf() 
             plt.plot(k_values, sse, 'bx-')
             plt.xlabel('Number of clusters (k)')
             plt.ylabel('Sum of Squared Errors (SSE)')
             plt.title('Elbow Method for Optimal k')
-            st.pyplot(plt)  # 使用st.pyplot显示曲线图
+            plt.plot([k_values[0], k_values[-1]], [sse[0], sse[-1]], 'r-')  # 添加连接第一个点和最后一个点的红色直线
+            with col2:
+                st.pyplot(plt)  # 使用st.pyplot显示曲线图
 
             # 自动选择最佳的k值
-            diff = np.diff(sse)
-            diff_ratio = diff[:-1] / diff[1:]
-            optimal_k = np.argmax(diff_ratio) + 2  # k值的索引需要加2，因为diff_ratio比diff少一个元素
+            line_slope = (sse[-1] - sse[0]) / (k_values[-1] - k_values[0])  # 直线a的斜率
+            m_values = line_slope * np.array(k_values) - np.array(sse)  # 计算m值
+            optimal_k = k_values[np.argmax(m_values)]  # 获取最大m值对应的k值
             k = int(optimal_k)
 
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
@@ -69,14 +68,44 @@ def extract_colors():
             ax.set_title('Extracted Colors')
 
             color_data_list.append({"Image": img, "Colors": colors, "Ratios": ratios})
-            #colors_ratios = np.concatenate((colors, np.expand_dims(ratios, axis=1)), axis=1)
-            #df = pd.DataFrame(colors_ratios)
-
-            st.write("Colors and Ratios for Image " + str(i + 1))
-            #st.write(df)  # 显示数据帧，并设置标题行
-            st.pyplot(fig)
-    
+            with col3:
+                st.pyplot(fig)
     return color_data_list
+
+
+def download_images(color_data_list):
+    if len(color_data_list) > 0:
+        # 保存饼图和颜色数据
+        for i, color_data in enumerate(color_data_list):
+            img = color_data["Image"]
+            colors = color_data["Colors"]
+            ratios = color_data["Ratios"]
+
+            fig, ax = plt.subplots(figsize=(8, 8))  # 创建新的图形对象
+            ax.pie(ratios, labels=None, colors=colors / 255, autopct='', startangle=90)
+            ax.axis('equal')
+            ax.set_title('')
+
+            # 保存饼图为png格式并设定背景透明
+            fig.patch.set_alpha(0)
+            fig.savefig(f"pie_{i+1}.png", transparent=True)
+            plt.close(fig)
+
+        # 创建一个下载按钮
+        with open("pies.zip", "wb") as file:
+            with zipfile.ZipFile(file, "w") as zipf:
+                for i in range(len(color_data_list)):
+                    zipf.write(f"pie_{i+1}.png")
+    
+        # 显示下载按钮
+        with open("pies.zip", "rb") as file:
+            btn = st.download_button(
+                label="Download All Pie Charts",
+                data=file,
+                file_name="pies.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
 
 
 def total_pie_chart(color_data_list):
@@ -242,27 +271,28 @@ def color_application(total_marked_colors, G):
 
 def main():
     with st.sidebar:
- 
-        if st.session_state.get('switch_button', False):
-            st.session_state['menu_option'] = (st.session_state.get('menu_option', 0) + 1) % 4
-            manual_select = st.session_state['menu_option']
-        else:
-            manual_select = None      
+        manual_select = None      
         selected4 = option_menu("Main Menu", ["Extracted Colors", "Total Pie Chart", "Color Network Model", 'Color Application'], 
                                 icons=['house', 'cloud-upload', "list-task", 'gear'], menu_icon="cast", 
                                 orientation="vertical", manual_select=manual_select, key='menu_4')
-        st.button(f"Move to Next {st.session_state.get('menu_option', 1)}", key='switch_button')
     st.title(selected4)
-
+    
+    imgs = st.session_state.get("imgs", [])
     color_data_list = st.session_state.get("color_data_list", [])
     total_colors = st.session_state.get("total_colors", [])
     total_marked_colors = st.session_state.get("total_marked_colors", [])
     G = st.session_state.get("G")
     if selected4 == "Extracted Colors":
-        color_data_list = extract_colors()
+        st.subheader("Input Images")
+        max_k = st.number_input('Enter the Max K of K-means', value=20)
+        if not imgs:
+            imgs = st.file_uploader("Choose Images", accept_multiple_files=True)
+        color_data_list = extract_colors(imgs, max_k)
+        download_images(color_data_list)
+        st.session_state["imgs"] = imgs
         st.session_state["color_data_list"] = color_data_list
     if selected4 == "Total Pie Chart":
-        total_colors = total_pie_chart(color_data_list, )
+        total_colors = total_pie_chart(color_data_list)
         st.session_state["total_colors"] = total_colors
     if selected4 == "Color Network Model":
         total_marked_colors, G = color_network_model(color_data_list, total_colors)
