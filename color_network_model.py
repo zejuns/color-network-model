@@ -222,21 +222,20 @@ def color_application(total_marked_colors, G):
     st.subheader("Select Colors And Apply Them")
     input_value = st.text_input("Enter the No. of the Main Color in the Total Pie Chart", value=1)
     values = ()
-    counter = 0
-
-    for node in G.nodes:
-        if counter == int(input_value) - 1:
-            rgb_value = node
-            values = rgb_value
-            break       
-        counter += 1
-    else:
-        values = []  # 如果输入值为空或超出节点范围，则将 values 设置为空列表
-    st.write("RGB value:", values)
-    k = st.number_input('Enter the number of auxiliary colors:', min_value=1)       
+    counter = 0     
     
     if len(total_marked_colors) > 0:     
-
+        for node in G.nodes:
+            if counter == int(input_value) - 1:
+                rgb_value = node
+                values = rgb_value
+                break       
+            counter += 1
+        else:
+            values = ()  # 如果输入值为空或超出节点范围，则将 values 设置为空列表
+        st.write("RGB value:", values)
+        k = st.number_input('Enter the number of auxiliary colors:', min_value=1)  
+        
         connected_edges = []
         selected_colors = [values]
         for u, v in G.edges():
